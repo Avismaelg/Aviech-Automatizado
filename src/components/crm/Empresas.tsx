@@ -16,6 +16,7 @@ import {
   FilasCargando,
   Insignia,
   Modal,
+  Selector,
   Tarjeta,
   Vacio,
 } from '../ui'
@@ -28,7 +29,10 @@ interface FormularioEmpresa {
   telefono: string
   sitio_web: string
   notas: string
+  descartada: boolean
 }
+
+type FiltroEmpresas = 'todas' | 'activas' | 'descartadas'
 
 const FORMULARIO_VACIO: FormularioEmpresa = {
   nombre: '',
@@ -37,11 +41,13 @@ const FORMULARIO_VACIO: FormularioEmpresa = {
   telefono: '',
   sitio_web: '',
   notas: '',
+  descartada: false,
 }
 
 export function Empresas({ empresas, contactos, oportunidades, refrescar }: PropsEmpresas) {
   const aviso = useAvisos()
   const [busqueda, setBusqueda] = useState('')
+  const [filtro, setFiltro] = useState<FiltroEmpresas>('todas')
   const [modalAbierto, setModalAbierto] = useState(false)
   const [editandoId, setEditandoId] = useState<string | null>(null)
   const [formulario, setFormulario] = useState<FormularioEmpresa>(FORMULARIO_VACIO)
@@ -71,12 +77,14 @@ export function Empresas({ empresas, contactos, oportunidades, refrescar }: Prop
   const filtradas = useMemo(() => {
     const texto = busqueda.trim().toLowerCase()
     return empresas.filas.filter((empresa) => {
+      if (filtro === 'activas' && empresa.descartada) return false
+      if (filtro === 'descartadas' && !empresa.descartada) return false
       if (!texto) return true
       return [empresa.nombre, empresa.industria, empresa.dominio, empresa.sitio_web, empresa.telefono].some((valor) =>
         valor?.toLowerCase().includes(texto),
       )
     })
-  }, [empresas.filas, busqueda])
+  }, [empresas.filas, busqueda, filtro])
 
   function abrirNuevo() {
     setEditandoId(null)
@@ -93,6 +101,7 @@ export function Empresas({ empresas, contactos, oportunidades, refrescar }: Prop
       telefono: empresa.telefono ?? '',
       sitio_web: empresa.sitio_web ?? '',
       notas: empresa.notas ?? '',
+      descartada: Boolean(empresa.descartada),
     })
     setModalAbierto(true)
   }
@@ -109,6 +118,7 @@ export function Empresas({ empresas, contactos, oportunidades, refrescar }: Prop
         telefono: formulario.telefono.trim() || null,
         sitio_web: formulario.sitio_web.trim() || null,
         notas: formulario.notas.trim() || null,
+        descartada: formulario.descartada,
       },
       editandoId ?? undefined,
     )
@@ -150,6 +160,16 @@ export function Empresas({ empresas, contactos, oportunidades, refrescar }: Prop
             className="pl-9"
           />
         </div>
+        <Selector
+          aria-label="Filtrar empresas"
+          value={filtro}
+          onChange={(evento) => setFiltro(evento.target.value as FiltroEmpresas)}
+          className="sm:w-44"
+        >
+          <option value="todas">Todas</option>
+          <option value="activas">Activas</option>
+          <option value="descartadas">Descartadas</option>
+        </Selector>
         <Boton onClick={abrirNuevo}>
           <Plus size={16} /> Nueva empresa
         </Boton>
@@ -180,8 +200,14 @@ export function Empresas({ empresas, contactos, oportunidades, refrescar }: Prop
               titulo="Sin resultados"
               texto="Prueba otra búsqueda."
               accion={
-                <Boton variante="secundario" onClick={() => setBusqueda('')}>
-                  Limpiar búsqueda
+                <Boton
+                  variante="secundario"
+                  onClick={() => {
+                    setBusqueda('')
+                    setFiltro('todas')
+                  }}
+                >
+                  Limpiar filtros
                 </Boton>
               }
             />
@@ -201,6 +227,7 @@ export function Empresas({ empresas, contactos, oportunidades, refrescar }: Prop
                     <div className="flex flex-wrap items-center gap-2">
                       <p className="truncate text-sm font-medium text-tinta">{empresa.nombre}</p>
                       {empresa.cliente_id && <Insignia color="emerald">Cliente</Insignia>}
+                      {empresa.descartada && <Insignia color="slate">Descartada</Insignia>}
                     </div>
                     <p className="truncate text-xs text-tinta-suave">
                       {[empresa.industria, empresa.dominio || empresa.sitio_web, empresa.telefono]
@@ -289,6 +316,20 @@ export function Empresas({ empresas, contactos, oportunidades, refrescar }: Prop
               placeholder="Contexto, tamaño, referidos…"
             />
           </Campo>
+          <label className="flex items-start gap-2 text-sm text-tinta-suave sm:col-span-2">
+            <input
+              type="checkbox"
+              checked={formulario.descartada}
+              onChange={(evento) => setFormulario({ ...formulario, descartada: evento.target.checked })}
+              className="mt-0.5 h-4 w-4 rounded border-borde text-blue-600 focus:ring-2 focus:ring-blue-500/30"
+            />
+            <span>
+              Empresa descartada
+              <span className="block text-xs text-tinta-tenue">
+                No volver a prospectar. Puedes reactivarla desmarcando esta casilla.
+              </span>
+            </span>
+          </label>
           <div className="flex justify-end gap-2 sm:col-span-2">
             <Boton variante="secundario" type="button" onClick={() => setModalAbierto(false)}>
               Cancelar

@@ -22,18 +22,77 @@ export async function buscarContactos(url: string, token: string): Promise<Datos
 export interface EmpresaExistente {
   id: string
   nombre: string
+  descartada: boolean
 }
 
 /** Comprueba si ya hay una empresa del CRM con ese dominio. */
 export async function buscarEmpresaPorDominio(dominio: string): Promise<EmpresaExistente | null> {
   if (!supabase) return null
-  const { data } = await supabase
+  const { data, error } = await supabase
+    .from('crm_empresas')
+    .select('id, nombre, descartada')
+    .ilike('dominio', dominio)
+    .limit(1)
+    .maybeSingle()
+  if (!error) return (data as EmpresaExistente | null) ?? null
+
+  // Compatibilidad mientras no se haya aplicado la migración 009.
+  const { data: basica } = await supabase
     .from('crm_empresas')
     .select('id, nombre')
     .ilike('dominio', dominio)
     .limit(1)
     .maybeSingle()
-  return (data as EmpresaExistente | null) ?? null
+  return basica
+    ? { id: basica.id as string, nombre: basica.nombre as string, descartada: false }
+    : null
+}
+
+export interface DatosDescartarEmpresa {
+  nombre: string
+  dominio: string
+  sitioWeb: string
+  telefono: string | null
+}
+
+export interface ResultadoDescartar {
+  ok: boolean
+  id?: string
+  /** true si la empresa ya estaba descartada antes de esta llamada. */
+  yaExistia?: boolean
+  error?: string
+}
+
+/**
+ * Marca una empresa como descartada. Si no existe en el CRM, la crea sin
+ * contacto para recordar que no debe volver a prospectarse.
+ */
+export async function descartarEmpresaEnCrm(datos: DatosDescartarEmpresa): Promise<ResultadoDescartar> {
+  if (!supabase) return { ok: false, error: 'Supabase no está configurado.' }
+
+  const existente = await buscarEmpresaPorDominio(datos.dominio)
+  if (existente) {
+    const { error } = await supabase.from('crm_empresas').update({ descartada: true }).eq('id', existente.id)
+    if (error) return { ok: false, error: `No se pudo marcar como descartada: ${error.message}` }
+    return { ok: true, id: existente.id, yaExistia: existente.descartada }
+  }
+
+  const { data, error } = await supabase
+    .from('crm_empresas')
+    .insert({
+      nombre: datos.nombre,
+      dominio: datos.dominio || null,
+      sitio_web: datos.sitioWeb || null,
+      telefono: datos.telefono,
+      notas: `Descartada desde Prospección el ${new Date().toISOString().slice(0, 10)}.`,
+      descartada: true,
+    })
+    .select('id')
+    .single()
+  if (error || !data) {
+    return { ok: false, error: `No se pudo crear la empresa descartada: ${error?.message ?? 'sin respuesta'}` }
+  }
+  return { ok: true, id: data.id as string, yaExistia: false }
 }
 
 export interface DatosGuardarCrm {
@@ -86,6 +145,10 @@ export async function guardarContactosEnCrm(datos: DatosGuardarCrm): Promise<{ o
   })
   if (errorContacto) {
     return { ok: false, error: `El contacto no se pudo guardar: ${errorContacto.message}` }
+  }
+  // Si la empresa estaba descartada, guardar un contacto la reactiva.
+  if (datos.empresaExistenteId) {
+    await supabase.from('crm_empresas').update({ descartada: false }).eq('id', datos.empresaExistenteId)
   }
   return { ok: true }
 }

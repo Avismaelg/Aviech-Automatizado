@@ -1,5 +1,6 @@
 import {
   AtSign,
+  Ban,
   CircleCheck,
   Download,
   ExternalLink,
@@ -19,6 +20,7 @@ import { fechaCompleta } from '../../lib/formato'
 import {
   buscarContactos,
   buscarEmpresaPorDominio,
+  descartarEmpresaEnCrm,
   guardarContactosEnCrm,
   type EmpresaExistente,
 } from '../../lib/prospeccion'
@@ -41,7 +43,7 @@ import {
 const FASES = [
   'Conectando con la web…',
   'Revisando la página principal…',
-  'Buscando la página de contacto…',
+  'Buscando páginas de contacto…',
   'Recogiendo correos, teléfonos y redes…',
 ]
 
@@ -57,6 +59,7 @@ export function Prospeccion({ onIrAlCrm }: { onIrAlCrm?: () => void }) {
   const [modalAbierto, setModalAbierto] = useState(false)
   const [empresaExistente, setEmpresaExistente] = useState<EmpresaExistente | null>(null)
   const [guardando, setGuardando] = useState(false)
+  const [descartando, setDescartando] = useState(false)
   const [nombreEmpresa, setNombreEmpresa] = useState('')
   const [nombreContacto, setNombreContacto] = useState('')
   const [email, setEmail] = useState('')
@@ -99,6 +102,8 @@ export function Prospeccion({ onIrAlCrm }: { onIrAlCrm?: () => void }) {
       setDatos(resultado)
       setEntrada(resultado.urlFinal)
       prepararFormulario(resultado)
+      const existente = await buscarEmpresaPorDominio(resultado.dominio)
+      setEmpresaExistente(existente)
       const total = resultado.emails.length + resultado.telefonos.length + resultado.redes.length
       if (total > 0) {
         aviso(`Encontrados ${total} datos de contacto`, 'ok')
@@ -146,6 +151,33 @@ export function Prospeccion({ onIrAlCrm }: { onIrAlCrm?: () => void }) {
     setModalAbierto(false)
     setGuardadoNombre(nombreEmpresa.trim())
     aviso(`${nombreEmpresa.trim()} quedó guardado en el CRM`, 'ok')
+  }
+
+  async function descartar() {
+    if (!datos || descartando) return
+    setDescartando(true)
+    const resultado = await descartarEmpresaEnCrm({
+      nombre: datos.nombre || datos.dominio,
+      dominio: datos.dominio,
+      sitioWeb: datos.urlFinal,
+      telefono: datos.telefonos[0]?.valor ?? null,
+    })
+    setDescartando(false)
+    if (!resultado.ok) {
+      aviso(resultado.error ?? 'No se pudo descartar la empresa.', 'error')
+      return
+    }
+    if (resultado.id) {
+      setEmpresaExistente({
+        id: resultado.id,
+        nombre: datos.nombre || datos.dominio,
+        descartada: true,
+      })
+    }
+    aviso(
+      resultado.yaExistia ? 'Esta empresa ya estaba descartada' : 'Empresa marcada como descartada',
+      resultado.yaExistia ? 'error' : 'ok',
+    )
   }
 
   return (
@@ -207,7 +239,7 @@ export function Prospeccion({ onIrAlCrm }: { onIrAlCrm?: () => void }) {
           </p>
         ) : (
           <p className="mt-2 text-xs text-tinta-tenue">
-            Se visitan la página principal y hasta 2 páginas de contacto del mismo dominio (como un visitante).
+            Se visitan la página principal y hasta 5 páginas de contacto del mismo dominio (como un visitante).
             Las webs que cargan todo con JavaScript pueden no mostrar sus datos.
           </p>
         )}
@@ -221,7 +253,10 @@ export function Prospeccion({ onIrAlCrm }: { onIrAlCrm?: () => void }) {
             datos={datos}
             guardadoNombre={guardadoNombre}
             verificando={verificando}
+            empresaDescartada={Boolean(empresaExistente?.descartada)}
+            descartando={descartando}
             onGuardar={() => void abrirGuardar()}
+            onDescartar={() => void descartar()}
             onIrAlCrm={onIrAlCrm}
           />
         ) : (
@@ -239,6 +274,11 @@ export function Prospeccion({ onIrAlCrm }: { onIrAlCrm?: () => void }) {
         {empresaExistente && (
           <p className="mb-4 rounded-lg border border-sky-200 bg-sky-50 px-3 py-2 text-xs text-sky-700">
             Ya tienes «{empresaExistente.nombre}» en el CRM: solo se añadirá el contacto a esa empresa.
+          </p>
+        )}
+        {empresaExistente?.descartada && (
+          <p className="mb-4 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+            Esta empresa está marcada como descartada. Si guardas el contacto, se reactivará en el CRM.
           </p>
         )}
         <form
@@ -360,13 +400,19 @@ function Resultado({
   datos,
   guardadoNombre,
   verificando,
+  empresaDescartada,
+  descartando,
   onGuardar,
+  onDescartar,
   onIrAlCrm,
 }: {
   datos: DatosProspeccion
   guardadoNombre: string
   verificando: boolean
+  empresaDescartada: boolean
+  descartando: boolean
   onGuardar: () => void
+  onDescartar: () => void
   onIrAlCrm?: () => void
 }) {
   const total = datos.emails.length + datos.telefonos.length + datos.redes.length
@@ -380,6 +426,7 @@ function Resultado({
             <Insignia color={total ? 'blue' : 'slate'}>
               {total} hallazgo{total === 1 ? '' : 's'}
             </Insignia>
+            {empresaDescartada && <Insignia color="slate">Descartada</Insignia>}
             {total > 0 && (
               <button
                 type="button"
@@ -494,6 +541,23 @@ function Resultado({
               </Boton>
             </>
           )}
+        </Tarjeta>
+
+        <Tarjeta className="p-5">
+          <h3 className="text-sm font-semibold text-tinta">Descartar empresa</h3>
+          <p className="mt-2 text-xs leading-relaxed text-tinta-suave">
+            Si no encaja, márcala para no volver a prospectarla. Podrás reactivarla desde el CRM.
+          </p>
+          <Boton
+            variante="secundario"
+            type="button"
+            className="mt-3 w-full"
+            onClick={onDescartar}
+            disabled={descartando || empresaDescartada}
+          >
+            <Ban size={15} aria-hidden />
+            {empresaDescartada ? 'Ya descartada' : descartando ? 'Descartando…' : 'Descartar empresa'}
+          </Boton>
         </Tarjeta>
 
         <Tarjeta className="p-5">

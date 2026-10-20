@@ -21,7 +21,7 @@ const TIMEOUT_PAGINA = 15_000
 const TIMEOUT_ARCHIVO = 8_000
 const TIMEOUT_SCRAPER = 12_000
 const MAX_ENLACES = 800
-const MAX_PAGINAS_CONTACTO = 2
+const MAX_PAGINAS_CONTACTO = 5
 const MAX_PALABRAS_HTML = LIMITE_HTML
 const ORIGENES_EXACTOS = ['https://aviech.avismael-eg.workers.dev']
 
@@ -424,7 +424,7 @@ const LOCALES_IGNORADOS = /^(no-?reply|donotreply|mailer-daemon|postmaster|test|
 const EXTENSIONES_IGNORADAS = /\.(png|jpe?g|gif|webp|svg|ico|css|js|woff2?)$/i
 
 /**
- * Prospección: visita la página principal y hasta 2 páginas de contacto/nosotros
+ * Prospección: visita la página principal y hasta 5 páginas de contacto/nosotros
  * del mismo dominio, y extrae correos, teléfonos y redes sociales.
  * Todo con expresiones regulares (CPU limitada en el plan gratis).
  */

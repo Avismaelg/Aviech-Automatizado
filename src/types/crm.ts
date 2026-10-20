@@ -10,6 +10,8 @@ export interface EmpresaCrm {
   sitio_web: string | null
   notas: string | null
   cliente_id: string | null
+  /** true = empresa descartada; no volver a prospectar. */
+  descartada: boolean
   created_at: string
 }
 
