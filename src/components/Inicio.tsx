@@ -3,7 +3,7 @@ import { ArrowRight, Banknote, Briefcase, Clock, Handshake, PiggyBank, Plus, Tre
 import type { LucideIcon } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { cx } from '../lib/estilos'
-import { colorEstadoCliente, etiquetaEstadoCliente } from '../lib/etiquetas'
+import { colorEstadoCliente, etiquetaCategoriaGasto, etiquetaEstadoCliente } from '../lib/etiquetas'
 import { diasDeAtraso, formatoDinero, formatoFecha, hoyISO, iniciales, mesActualISO } from '../lib/formato'
 import { supabase } from '../lib/supabase'
 import { useContador } from '../lib/useContador'
@@ -87,6 +87,43 @@ function serieIngresos(pagos: Pago[]): PuntoSerie[] {
     puntos.push({ clave, etiqueta: MESES_CORTOS[fecha.getMonth()], valor, actual: i === 0 })
   }
   return puntos
+}
+
+interface FilaBarra {
+  clave: string
+  etiqueta: string
+  valor: number
+}
+
+/** Agrupa los pagos cobrados por cliente y devuelve el top 5 histórico. */
+function topClientes(pagos: Pago[], clientes: Cliente[]): FilaBarra[] {
+  const nombres = new Map(clientes.map((cliente) => [cliente.id, cliente.nombre]))
+  for (const pago of pagos) {
+    if (!nombres.has(pago.cliente_id) && pago.clientes?.nombre) nombres.set(pago.cliente_id, pago.clientes.nombre)
+  }
+  const totales = new Map<string, number>()
+  for (const pago of pagos) {
+    if (pago.estado !== 'pagado') continue
+    totales.set(pago.cliente_id, (totales.get(pago.cliente_id) ?? 0) + Number(pago.monto))
+  }
+  return [...totales.entries()]
+    .map(([clave, valor]) => ({ clave, etiqueta: nombres.get(clave) ?? 'Cliente sin nombre', valor }))
+    .filter((fila) => fila.valor > 0)
+    .sort((a, b) => b.valor - a.valor)
+    .slice(0, 5)
+}
+
+/** Suma los gastos del mes por categoría, de mayor a menor. */
+function gastosPorCategoria(gastos: Gasto[], mes: string): FilaBarra[] {
+  const totales = new Map<string, number>()
+  for (const gasto of gastos) {
+    if ((gasto.fecha ?? '').slice(0, 7) !== mes) continue
+    totales.set(gasto.categoria, (totales.get(gasto.categoria) ?? 0) + Number(gasto.monto))
+  }
+  return [...totales.entries()]
+    .map(([clave, valor]) => ({ clave, etiqueta: etiquetaCategoriaGasto[clave] ?? clave, valor }))
+    .filter((fila) => fila.valor > 0)
+    .sort((a, b) => b.valor - a.valor)
 }
 
 function GraficoIngresos({ serie }: { serie: PuntoSerie[] }) {
@@ -178,6 +215,28 @@ function AnilloCobro({ cobrado, porCobrar }: { cobrado: number; porCobrar: numbe
         </div>
       </dl>
     </div>
+  )
+}
+
+function ListaBarras({ filas, color }: { filas: FilaBarra[]; color: string }) {
+  const maximo = Math.max(...filas.map((fila) => fila.valor), 1)
+  return (
+    <ul className="space-y-3.5 p-5">
+      {filas.map((fila) => (
+        <li key={fila.clave}>
+          <div className="flex items-baseline justify-between gap-3 text-xs">
+            <span className="truncate font-medium text-tinta">{fila.etiqueta}</span>
+            <span className="shrink-0 font-semibold text-tinta-suave tabular-nums">{formatoDinero(fila.valor)}</span>
+          </div>
+          <div className="mt-1.5 h-2 overflow-hidden rounded-full bg-superficie-2">
+            <div
+              className={cx('animar-barra h-full rounded-full', color)}
+              style={{ width: `${Math.max((fila.valor / maximo) * 100, 3)}%` }}
+            />
+          </div>
+        </li>
+      ))}
+    </ul>
   )
 }
 
@@ -279,6 +338,8 @@ export function Inicio({ sesion, onIr }: { sesion: Session; onIr: (seccion: Secc
   const actividadesAtrasadas = datos.actividades
   const pagosVencidos = pendientesPago.filter((pago) => diasDeAtraso(pago.fecha) > 0)
   const totalVencido = pagosVencidos.reduce((total, pago) => total + Number(pago.monto), 0)
+  const topPorCliente = topClientes(pagos, clientes)
+  const gastosCategoria = gastosPorCategoria(datos.gastos, mesActual)
 
   return (
     <section>
@@ -501,6 +562,54 @@ export function Inicio({ sesion, onIr }: { sesion: Session; onIr: (seccion: Secc
             <p className="mt-0.5 text-xs text-tinta-tenue">Pagado vs. pendiente (todo el historial)</p>
           </div>
           <AnilloCobro cobrado={cobradoHistorico} porCobrar={porCobrar} />
+        </Tarjeta>
+      </div>
+
+      <div className="mt-6 grid gap-4 lg:grid-cols-2">
+        <Tarjeta>
+          <div className="flex items-center justify-between border-b border-borde-suave px-5 py-4">
+            <div>
+              <h3 className="text-[15px] font-semibold text-tinta">Top clientes</h3>
+              <p className="mt-0.5 text-xs text-tinta-tenue">Por ingresos cobrados (histórico)</p>
+            </div>
+            <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-blue-50 text-blue-700">
+              <Users size={17} />
+            </span>
+          </div>
+          {topPorCliente.length === 0 ? (
+            <Vacio
+              icono={<Users size={22} />}
+              titulo="Aún no hay ingresos"
+              texto="Cuando registres pagos cobrados, verás aquí a tus mejores clientes."
+            />
+          ) : (
+            <ListaBarras filas={topPorCliente} color="bg-gradient-to-r from-blue-600 to-cyan-400" />
+          )}
+        </Tarjeta>
+
+        <Tarjeta>
+          <div className="flex items-center justify-between border-b border-borde-suave px-5 py-4">
+            <div>
+              <h3 className="text-[15px] font-semibold text-tinta">Gastos del mes por categoría</h3>
+              <p className="mt-0.5 text-xs text-tinta-tenue">Total: {formatoDinero(gastosMes)}</p>
+            </div>
+            <button
+              type="button"
+              onClick={() => onIr('gastos')}
+              className="flex items-center gap-1 rounded-full px-2 py-1 text-xs font-semibold text-blue-700 transition-colors hover:bg-blue-50"
+            >
+              Ver gastos <ArrowRight size={13} />
+            </button>
+          </div>
+          {gastosCategoria.length === 0 ? (
+            <Vacio
+              icono={<TrendingDown size={22} />}
+              titulo="Sin gastos este mes"
+              texto="Registra un gasto para ver su distribución por categoría."
+            />
+          ) : (
+            <ListaBarras filas={gastosCategoria} color="bg-gradient-to-r from-rose-500 to-orange-400" />
+          )}
         </Tarjeta>
       </div>
 
