@@ -1,8 +1,9 @@
-import { CircleAlert, MessageCircle, RotateCcw, Send, Sparkles, X } from 'lucide-react'
+import { CircleAlert, MessageCircle, RotateCcw, Send, Sparkles, Trash2, X } from 'lucide-react'
 import { Fragment, useEffect, useRef, useState } from 'react'
-import { supabase } from '../lib/supabase'
-import { conversarConIA, obtenerToken } from '../lib/ia'
+import { borrarHistorialAsistente, cargarHistorialAsistente, guardarMensajeAsistente } from '../lib/asistente'
 import { cx } from '../lib/estilos'
+import { conversarConIA, obtenerToken } from '../lib/ia'
+import { supabase } from '../lib/supabase'
 
 interface Mensaje {
   id: string
@@ -16,6 +17,15 @@ const SUGERENCIAS = [
   'Dame ideas para conseguir más clientes de consultoría.',
 ]
 
+/** UUID v4 para agrupar los mensajes de una conversación. */
+function nuevoUuid(): string {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') return crypto.randomUUID()
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (caracter) => {
+    const aleatorio = Math.floor(Math.random() * 16)
+    return (caracter === 'x' ? aleatorio : (aleatorio & 0x3) | 0x8).toString(16)
+  })
+}
+
 /** Asistente de IA flotante del panel. Usa Workers AI (plan gratis, sin claves). */
 export function AsistenteIA() {
   const [abierto, setAbierto] = useState(false)
@@ -23,6 +33,10 @@ export function AsistenteIA() {
   const [texto, setTexto] = useState('')
   const [enviando, setEnviando] = useState(false)
   const [error, setError] = useState('')
+  const [conversacionId, setConversacionId] = useState(nuevoUuid)
+  const [historialDisponible, setHistorialDisponible] = useState<boolean | null>(null)
+  const [confirmandoBorrado, setConfirmandoBorrado] = useState(false)
+  const [borrando, setBorrando] = useState(false)
   const entrada = useRef<HTMLTextAreaElement>(null)
   const lista = useRef<HTMLDivElement>(null)
   const secuencia = useRef(0)
@@ -53,6 +67,33 @@ export function AsistenteIA() {
     }
   }, [abierto, mensajes, enviando, error])
 
+  useEffect(() => {
+    let activo = true
+    void cargarHistorialAsistente().then((filas) => {
+      if (!activo) return
+      if (filas === null) {
+        setHistorialDisponible(false)
+        return
+      }
+      setHistorialDisponible(true)
+      if (filas.length === 0) return
+      setConversacionId(filas[0].conversacion_id)
+      setMensajes(filas.map((fila) => ({ id: fila.id, rol: fila.rol, texto: fila.contenido })))
+    })
+    return () => {
+      activo = false
+    }
+  }, [])
+
+  async function guardar(mensaje: Mensaje) {
+    const guardado = await guardarMensajeAsistente({
+      conversacionId,
+      rol: mensaje.rol,
+      contenido: mensaje.texto,
+    })
+    setHistorialDisponible(guardado)
+  }
+
   async function responder(historial: Mensaje[]) {
     setEnviando(true)
     setError('')
@@ -62,9 +103,9 @@ export function AsistenteIA() {
         historial.map(({ rol, texto: contenido }) => ({ rol, contenido })),
         token,
       )
-      setMensajes((anteriores) =>
-        [...anteriores, { id: nuevoId('asistente'), rol: 'assistant' as const, texto: respuesta }].slice(-20),
-      )
+      const mensajeAsistente: Mensaje = { id: nuevoId('asistente'), rol: 'assistant', texto: respuesta }
+      setMensajes((anteriores) => [...anteriores, mensajeAsistente].slice(-50))
+      void guardar(mensajeAsistente)
     } catch (fallo) {
       setError(fallo instanceof Error ? fallo.message : 'El asistente no pudo responder. Inténtalo de nuevo.')
     } finally {
@@ -76,10 +117,11 @@ export function AsistenteIA() {
     const contenido = (sugerencia ?? texto).trim()
     if (!contenido || enviando) return
     const nuevo: Mensaje = { id: nuevoId('usuario'), rol: 'user', texto: contenido }
-    const historial = [...mensajes, nuevo].slice(-20)
+    const historial = [...mensajes, nuevo].slice(-50)
     setTexto('')
     setError('')
     setMensajes(historial)
+    void guardar(nuevo)
     void responder(historial)
   }
 
@@ -88,11 +130,31 @@ export function AsistenteIA() {
     void responder(mensajes)
   }
 
-  function limpiar() {
+  function nuevaConversacion() {
     if (enviando) return
     setMensajes([])
     setError('')
     setTexto('')
+    setConfirmandoBorrado(false)
+    setConversacionId(nuevoUuid())
+    entrada.current?.focus()
+  }
+
+  async function borrarHistorial() {
+    if (borrando) return
+    setBorrando(true)
+    const borrado = await borrarHistorialAsistente()
+    setBorrando(false)
+    if (!borrado) {
+      setError('No se pudo borrar el historial. Inténtalo de nuevo.')
+      setConfirmandoBorrado(false)
+      return
+    }
+    setMensajes([])
+    setError('')
+    setTexto('')
+    setConfirmandoBorrado(false)
+    setConversacionId(nuevoUuid())
     entrada.current?.focus()
   }
 
@@ -130,13 +192,25 @@ export function AsistenteIA() {
         {mensajes.length > 0 && (
           <button
             type="button"
-            onClick={limpiar}
+            onClick={nuevaConversacion}
             disabled={enviando}
             title="Nueva conversación"
             aria-label="Nueva conversación"
             className="flex h-8 w-8 items-center justify-center rounded-full text-tinta-tenue transition-colors hover:bg-superficie-2 hover:text-tinta disabled:cursor-not-allowed disabled:opacity-40"
           >
             <RotateCcw size={16} aria-hidden />
+          </button>
+        )}
+        {historialDisponible === true && mensajes.length > 0 && (
+          <button
+            type="button"
+            onClick={() => setConfirmandoBorrado(true)}
+            disabled={enviando || borrando}
+            title="Borrar historial"
+            aria-label="Borrar historial"
+            className="flex h-8 w-8 items-center justify-center rounded-full text-tinta-tenue transition-colors hover:bg-red-50 hover:text-red-700 disabled:cursor-not-allowed disabled:opacity-40"
+          >
+            <Trash2 size={16} aria-hidden />
           </button>
         )}
         <button
@@ -151,6 +225,34 @@ export function AsistenteIA() {
       </header>
 
       <div ref={lista} className="flex-1 space-y-4 overflow-y-auto bg-fondo/60 px-4 py-4" role="log" aria-live="polite">
+        {confirmandoBorrado && (
+          <div
+            role="alertdialog"
+            aria-label="Confirmar borrado del historial"
+            className="rounded-xl border border-red-200 bg-red-50 p-3 text-xs text-red-800"
+          >
+            <p className="font-semibold">¿Borrar todo el historial del asistente?</p>
+            <p className="mt-1 leading-relaxed">Esta acción no se puede deshacer.</p>
+            <div className="mt-2 flex flex-wrap gap-2">
+              <button
+                type="button"
+                onClick={() => void borrarHistorial()}
+                disabled={borrando}
+                className="rounded-lg bg-red-700 px-2.5 py-1.5 font-semibold text-white transition-colors hover:bg-red-800 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {borrando ? 'Borrando…' : 'Sí, borrar'}
+              </button>
+              <button
+                type="button"
+                onClick={() => setConfirmandoBorrado(false)}
+                disabled={borrando}
+                className="rounded-lg border border-red-200 bg-white px-2.5 py-1.5 font-semibold text-red-700 transition-colors hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                Cancelar
+              </button>
+            </div>
+          </div>
+        )}
         {mensajes.length === 0 ? (
           <div className="rounded-2xl border border-borde bg-superficie p-4 shadow-sm">
             <div className="flex items-center gap-2">
@@ -245,6 +347,11 @@ export function AsistenteIA() {
             <Send size={16} aria-hidden />
           </button>
         </div>
+        {historialDisponible === false && (
+          <p className="mt-1 px-1 text-[10px] leading-snug text-amber-700">
+            El historial no está disponible hasta aplicar la migración 010.
+          </p>
+        )}
         <p className="mt-1.5 px-1 text-[10px] leading-snug text-tinta-tenue">
           Gratis con Cloudflare Workers AI · puede equivocarse · no compartas contraseñas ni claves
         </p>
