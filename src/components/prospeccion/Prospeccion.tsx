@@ -1,6 +1,7 @@
 import {
   AtSign,
   CircleCheck,
+  Download,
   ExternalLink,
   Globe,
   Mail,
@@ -12,6 +13,7 @@ import {
 } from 'lucide-react'
 import { useEffect, useState, type ReactNode } from 'react'
 import { useAvisos } from '../../lib/avisos'
+import { construirCSV, descargarContenidoCSV } from '../../lib/csv'
 import { cx } from '../../lib/estilos'
 import { fechaCompleta } from '../../lib/formato'
 import {
@@ -378,6 +380,16 @@ function Resultado({
             <Insignia color={total ? 'blue' : 'slate'}>
               {total} hallazgo{total === 1 ? '' : 's'}
             </Insignia>
+            {total > 0 && (
+              <button
+                type="button"
+                onClick={() => exportarProspeccion(datos)}
+                className="ml-auto inline-flex items-center gap-1.5 rounded-lg border border-borde bg-superficie-2/60 px-2.5 py-1.5 text-xs font-medium text-tinta-suave transition-colors hover:border-blue-200 hover:text-tinta"
+              >
+                <Download size={13} aria-hidden />
+                Exportar CSV
+              </button>
+            )}
           </div>
           <a
             href={datos.urlFinal}
@@ -534,6 +546,19 @@ function BloqueHallazgos({
       )}
     </section>
   )
+}
+
+/** Descarga todos los hallazgos visibles en una tabla CSV compatible con Excel. */
+function exportarProspeccion(datos: DatosProspeccion): void {
+  const filas: string[][] = [['Tipo', 'Valor', 'Origen']]
+  datos.emails.forEach((hallazgo) => filas.push(['Correo', hallazgo.valor, hallazgo.origen]))
+  datos.telefonos.forEach((hallazgo) => filas.push(['Teléfono', hallazgo.valor, hallazgo.origen]))
+  datos.redes.forEach((hallazgo) => filas.push([hallazgo.red, hallazgo.url, hallazgo.origen]))
+  if (filas.length === 1) return
+
+  const dominio = datos.dominio.replace(/[^a-z0-9.-]+/gi, '-').replace(/^-+|-+$/g, '') || 'empresa'
+  const fecha = datos.fecha.slice(0, 10) || new Date().toISOString().slice(0, 10)
+  descargarContenidoCSV(`prospeccion-${dominio}-${fecha}`, construirCSV(filas, ';'))
 }
 
 function construirNotas(datos: DatosProspeccion): string {
