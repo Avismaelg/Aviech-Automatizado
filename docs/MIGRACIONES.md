@@ -36,3 +36,13 @@ El orden importa: primero 001, luego 002, etc.
 | `003_rnc_clientes.sql` | Columna `rnc` en clientes (RNC dominicano, República Dominicana) |
 | `004_gastos.sql` | Tabla `gastos` (regla del dinero ×3) + políticas RLS |
 | `005_facturas.sql` | Tablas `facturas` (NCF/e-NCF, ITBIS, estados, pago vinculado) y `factura_items` (líneas) + políticas RLS |
+| `006_igualas.sql` | Tabla `igualas` (contratos mensuales) + políticas RLS |
+| `007_crm.sql` | Tablas del CRM: empresas, contactos, oportunidades y actividades + políticas RLS |
+| `008_seo.sql` | Historial de auditorías SEO + políticas RLS |
+| `009_crm_descartadas.sql` | Columna `descartada` en `crm_empresas` para no volver a prospectar |
+| `010_asistente_historial.sql` | Tabla `asistente_mensajes` con historial por usuario y RLS estricta |
+
+> **Nota (20-oct-2026):** en la copia `Aviech-Automatizado` el secreto
+> `SUPABASE_DBURL` todavía no está configurado. Las migraciones 009 y 010 están
+> escritas y fusionadas, pero pendientes de aplicar. Pasos en
+> `docs/CAMBIOS-FASE-2.md`.
