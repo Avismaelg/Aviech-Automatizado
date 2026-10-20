@@ -15,6 +15,7 @@ import {
 import { useEffect, useState, type ReactNode } from 'react'
 import { useAvisos } from '../../lib/avisos'
 import { construirCSV, descargarContenidoCSV } from '../../lib/csv'
+import { soportaDescartadas } from '../../lib/descartadas'
 import { cx } from '../../lib/estilos'
 import { fechaCompleta } from '../../lib/formato'
 import {
@@ -60,12 +61,17 @@ export function Prospeccion({ onIrAlCrm }: { onIrAlCrm?: () => void }) {
   const [empresaExistente, setEmpresaExistente] = useState<EmpresaExistente | null>(null)
   const [guardando, setGuardando] = useState(false)
   const [descartando, setDescartando] = useState(false)
+  const [puedeDescartar, setPuedeDescartar] = useState(false)
   const [nombreEmpresa, setNombreEmpresa] = useState('')
   const [nombreContacto, setNombreContacto] = useState('')
   const [email, setEmail] = useState('')
   const [telefono, setTelefono] = useState('')
   const [linkedin, setLinkedin] = useState('')
   const [notas, setNotas] = useState('')
+
+  useEffect(() => {
+    void soportaDescartadas().then(setPuedeDescartar)
+  }, [])
 
   function validar(valor: string): string {
     try {
@@ -155,6 +161,10 @@ export function Prospeccion({ onIrAlCrm }: { onIrAlCrm?: () => void }) {
 
   async function descartar() {
     if (!datos || descartando) return
+    if (!puedeDescartar) {
+      aviso('La función de descartadas aún no está disponible. Aplica la migración 009 en la base de datos.', 'error')
+      return
+    }
     setDescartando(true)
     const resultado = await descartarEmpresaEnCrm({
       nombre: datos.nombre || datos.dominio,
@@ -254,6 +264,7 @@ export function Prospeccion({ onIrAlCrm }: { onIrAlCrm?: () => void }) {
             guardadoNombre={guardadoNombre}
             verificando={verificando}
             empresaDescartada={Boolean(empresaExistente?.descartada)}
+            puedeDescartar={puedeDescartar}
             descartando={descartando}
             onGuardar={() => void abrirGuardar()}
             onDescartar={() => void descartar()}
@@ -401,6 +412,7 @@ function Resultado({
   guardadoNombre,
   verificando,
   empresaDescartada,
+  puedeDescartar,
   descartando,
   onGuardar,
   onDescartar,
@@ -410,6 +422,7 @@ function Resultado({
   guardadoNombre: string
   verificando: boolean
   empresaDescartada: boolean
+  puedeDescartar: boolean
   descartando: boolean
   onGuardar: () => void
   onDescartar: () => void
@@ -543,22 +556,24 @@ function Resultado({
           )}
         </Tarjeta>
 
-        <Tarjeta className="p-5">
-          <h3 className="text-sm font-semibold text-tinta">Descartar empresa</h3>
-          <p className="mt-2 text-xs leading-relaxed text-tinta-suave">
-            Si no encaja, márcala para no volver a prospectarla. Podrás reactivarla desde el CRM.
-          </p>
-          <Boton
-            variante="secundario"
-            type="button"
-            className="mt-3 w-full"
-            onClick={onDescartar}
-            disabled={descartando || empresaDescartada}
-          >
-            <Ban size={15} aria-hidden />
-            {empresaDescartada ? 'Ya descartada' : descartando ? 'Descartando…' : 'Descartar empresa'}
-          </Boton>
-        </Tarjeta>
+        {puedeDescartar && (
+          <Tarjeta className="p-5">
+            <h3 className="text-sm font-semibold text-tinta">Descartar empresa</h3>
+            <p className="mt-2 text-xs leading-relaxed text-tinta-suave">
+              Si no encaja, márcala para no volver a prospectarla. Podrás reactivarla desde el CRM.
+            </p>
+            <Boton
+              variante="secundario"
+              type="button"
+              className="mt-3 w-full"
+              onClick={onDescartar}
+              disabled={descartando || empresaDescartada}
+            >
+              <Ban size={15} aria-hidden />
+              {empresaDescartada ? 'Ya descartada' : descartando ? 'Descartando…' : 'Descartar empresa'}
+            </Boton>
+          </Tarjeta>
+        )}
 
         <Tarjeta className="p-5">
           <h3 className="text-sm font-semibold text-tinta">Páginas revisadas</h3>

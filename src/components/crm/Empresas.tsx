@@ -1,7 +1,8 @@
 import { Building2, Pencil, Plus, Search, Trash2, UserPlus } from 'lucide-react'
-import { useMemo, useState, type FormEvent } from 'react'
+import { useEffect, useMemo, useState, type FormEvent } from 'react'
 import { useAvisos } from '../../lib/avisos'
 import { convertirEmpresaEnCliente } from '../../lib/crm'
+import { soportaDescartadas } from '../../lib/descartadas'
 import { ETAPAS_CRM_ABIERTAS } from '../../lib/etiquetas'
 import { iniciales } from '../../lib/formato'
 import type { EmpresaCrm } from '../../types/crm'
@@ -55,6 +56,11 @@ export function Empresas({ empresas, contactos, oportunidades, refrescar }: Prop
   const [porConvertir, setPorConvertir] = useState<EmpresaCrm | null>(null)
   const [guardando, setGuardando] = useState(false)
   const [convirtiendo, setConvirtiendo] = useState(false)
+  const [puedeDescartar, setPuedeDescartar] = useState(false)
+
+  useEffect(() => {
+    void soportaDescartadas().then(setPuedeDescartar)
+  }, [])
 
   const contactosPorEmpresa = useMemo(() => {
     const mapa = new Map<string, number>()
@@ -110,18 +116,16 @@ export function Empresas({ empresas, contactos, oportunidades, refrescar }: Prop
     evento.preventDefault()
     if (guardando || !formulario.nombre.trim()) return
     setGuardando(true)
-    const guardado = await empresas.guardar(
-      {
-        nombre: formulario.nombre.trim(),
-        dominio: formulario.dominio.trim() || null,
-        industria: formulario.industria.trim() || null,
-        telefono: formulario.telefono.trim() || null,
-        sitio_web: formulario.sitio_web.trim() || null,
-        notas: formulario.notas.trim() || null,
-        descartada: formulario.descartada,
-      },
-      editandoId ?? undefined,
-    )
+    const valores = {
+      nombre: formulario.nombre.trim(),
+      dominio: formulario.dominio.trim() || null,
+      industria: formulario.industria.trim() || null,
+      telefono: formulario.telefono.trim() || null,
+      sitio_web: formulario.sitio_web.trim() || null,
+      notas: formulario.notas.trim() || null,
+      ...(puedeDescartar ? { descartada: formulario.descartada } : {}),
+    }
+    const guardado = await empresas.guardar(valores, editandoId ?? undefined)
     setGuardando(false)
     if (guardado) setModalAbierto(false)
   }
@@ -160,16 +164,18 @@ export function Empresas({ empresas, contactos, oportunidades, refrescar }: Prop
             className="pl-9"
           />
         </div>
-        <Selector
-          aria-label="Filtrar empresas"
-          value={filtro}
-          onChange={(evento) => setFiltro(evento.target.value as FiltroEmpresas)}
-          className="sm:w-44"
-        >
-          <option value="todas">Todas</option>
-          <option value="activas">Activas</option>
-          <option value="descartadas">Descartadas</option>
-        </Selector>
+        {puedeDescartar && (
+          <Selector
+            aria-label="Filtrar empresas"
+            value={filtro}
+            onChange={(evento) => setFiltro(evento.target.value as FiltroEmpresas)}
+            className="sm:w-44"
+          >
+            <option value="todas">Todas</option>
+            <option value="activas">Activas</option>
+            <option value="descartadas">Descartadas</option>
+          </Selector>
+        )}
         <Boton onClick={abrirNuevo}>
           <Plus size={16} /> Nueva empresa
         </Boton>
@@ -316,20 +322,22 @@ export function Empresas({ empresas, contactos, oportunidades, refrescar }: Prop
               placeholder="Contexto, tamaño, referidos…"
             />
           </Campo>
-          <label className="flex items-start gap-2 text-sm text-tinta-suave sm:col-span-2">
-            <input
-              type="checkbox"
-              checked={formulario.descartada}
-              onChange={(evento) => setFormulario({ ...formulario, descartada: evento.target.checked })}
-              className="mt-0.5 h-4 w-4 rounded border-borde text-blue-600 focus:ring-2 focus:ring-blue-500/30"
-            />
-            <span>
-              Empresa descartada
-              <span className="block text-xs text-tinta-tenue">
-                No volver a prospectar. Puedes reactivarla desmarcando esta casilla.
+          {puedeDescartar && (
+            <label className="flex items-start gap-2 text-sm text-tinta-suave sm:col-span-2">
+              <input
+                type="checkbox"
+                checked={formulario.descartada}
+                onChange={(evento) => setFormulario({ ...formulario, descartada: evento.target.checked })}
+                className="mt-0.5 h-4 w-4 rounded border-borde text-blue-600 focus:ring-2 focus:ring-blue-500/30"
+              />
+              <span>
+                Empresa descartada
+                <span className="block text-xs text-tinta-tenue">
+                  No volver a prospectar. Puedes reactivarla desmarcando esta casilla.
+                </span>
               </span>
-            </span>
-          </label>
+            </label>
+          )}
           <div className="flex justify-end gap-2 sm:col-span-2">
             <Boton variante="secundario" type="button" onClick={() => setModalAbierto(false)}>
               Cancelar
