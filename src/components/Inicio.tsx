@@ -4,9 +4,10 @@ import type { LucideIcon } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { cx } from '../lib/estilos'
 import { colorEstadoCliente, etiquetaEstadoCliente } from '../lib/etiquetas'
-import { diasDeAtraso, formatoDinero, formatoFecha, iniciales, mesActualISO } from '../lib/formato'
+import { diasDeAtraso, formatoDinero, formatoFecha, hoyISO, iniciales, mesActualISO } from '../lib/formato'
 import { supabase } from '../lib/supabase'
 import { useContador } from '../lib/useContador'
+import type { ActividadCrm } from '../types/crm'
 import type { Cliente } from '../types/cliente'
 import type { Gasto } from '../types/gasto'
 import type { Iguala } from '../types/iguala'
@@ -21,6 +22,7 @@ interface Resumen {
   pagos: Pago[]
   gastos: Gasto[]
   igualas: Iguala[]
+  actividades: ActividadCrm[]
 }
 
 const MESES_CORTOS = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic']
@@ -191,7 +193,13 @@ export function Inicio({ sesion, onIr }: { sesion: Session; onIr: (seccion: Secc
       supabase.from('pagos').select('*, clientes(nombre)').order('fecha', { ascending: false }),
       supabase.from('gastos').select('*').order('fecha', { ascending: false }),
       supabase.from('igualas').select('*'),
-    ]).then(([consultaClientes, consultaServicios, consultaPagos, consultaGastos, consultaIgualas]) => {
+      supabase
+        .from('crm_actividades')
+        .select('*, crm_oportunidades(titulo, crm_empresas(nombre)), crm_contactos(nombre)')
+        .eq('completada', false)
+        .lt('fecha', hoyISO())
+        .order('fecha', { ascending: true }),
+    ]).then(([consultaClientes, consultaServicios, consultaPagos, consultaGastos, consultaIgualas, consultaActividades]) => {
       if (consultaClientes.error || consultaServicios.error || consultaPagos.error) setErrorTablas(true)
       setDatos({
         clientes: (consultaClientes.data ?? []) as Cliente[],
@@ -199,6 +207,7 @@ export function Inicio({ sesion, onIr }: { sesion: Session; onIr: (seccion: Secc
         pagos: (consultaPagos.data ?? []) as Pago[],
         gastos: (consultaGastos.error ? [] : (consultaGastos.data ?? [])) as Gasto[],
         igualas: (consultaIgualas.error ? [] : (consultaIgualas.data ?? [])) as Iguala[],
+        actividades: (consultaActividades.error ? [] : (consultaActividades.data ?? [])) as ActividadCrm[],
       })
     })
   }, [])
@@ -267,6 +276,9 @@ export function Inicio({ sesion, onIr }: { sesion: Session; onIr: (seccion: Secc
   const serie = serieIngresos(pagos)
   const totalPeriodo = serie.reduce((total, punto) => total + punto.valor, 0)
   const recientes = clientes.slice(0, 5)
+  const actividadesAtrasadas = datos.actividades
+  const pagosVencidos = pendientesPago.filter((pago) => diasDeAtraso(pago.fecha) > 0)
+  const totalVencido = pagosVencidos.reduce((total, pago) => total + Number(pago.monto), 0)
 
   return (
     <section>
@@ -365,6 +377,106 @@ export function Inicio({ sesion, onIr }: { sesion: Session; onIr: (seccion: Secc
           claseValor={balanceMes >= 0 ? 'text-emerald-700' : 'text-rose-700'}
           detalle="Cobrado − gastos"
         />
+      </div>
+
+      <div className="mt-6 grid gap-4 lg:grid-cols-2">
+        <Tarjeta>
+          <div className="flex items-center justify-between border-b border-borde-suave px-5 py-4">
+            <div>
+              <h3 className="text-[15px] font-semibold text-tinta">Actividades atrasadas</h3>
+              <p className="mt-0.5 text-xs text-tinta-tenue">
+                {actividadesAtrasadas.length === 0
+                  ? 'Sin seguimientos vencidos'
+                  : `${actividadesAtrasadas.length} ${
+                      actividadesAtrasadas.length === 1 ? 'actividad requiere' : 'actividades requieren'
+                    } atención`}
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => onIr('crm')}
+              className="flex items-center gap-1 rounded-full px-2 py-1 text-xs font-semibold text-blue-700 transition-colors hover:bg-blue-50"
+            >
+              Ver CRM <ArrowRight size={13} />
+            </button>
+          </div>
+          {actividadesAtrasadas.length === 0 ? (
+            <Vacio icono={<Clock size={22} />} titulo="Todo al día" texto="No hay actividades atrasadas en el CRM." />
+          ) : (
+            <ul className="divide-y divide-borde-suave">
+              {actividadesAtrasadas.slice(0, 5).map((actividad) => {
+                const dias = diasDeAtraso(actividad.fecha)
+                const contexto =
+                  actividad.crm_oportunidades?.crm_empresas?.nombre ??
+                  actividad.crm_oportunidades?.titulo ??
+                  actividad.crm_contactos?.nombre ??
+                  'Sin vincular'
+                return (
+                  <li
+                    key={actividad.id}
+                    className="flex items-center gap-3 px-4 py-2.5 transition-colors hover:bg-superficie-2"
+                  >
+                    <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-amber-50 text-amber-700">
+                      <Clock size={14} />
+                    </span>
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate text-sm font-medium text-tinta">{actividad.titulo}</p>
+                      <p className="truncate text-xs text-tinta-tenue">
+                        {contexto} · {formatoFecha(actividad.fecha)} ·{' '}
+                        <span className="font-medium text-red-700">
+                          atrasada {dias} día{dias === 1 ? '' : 's'}
+                        </span>
+                      </p>
+                    </div>
+                  </li>
+                )
+              })}
+            </ul>
+          )}
+        </Tarjeta>
+
+        <Tarjeta>
+          <div className="flex items-center justify-between border-b border-borde-suave px-5 py-4">
+            <div>
+              <h3 className="text-[15px] font-semibold text-tinta">Pagos vencidos</h3>
+              <p className="mt-0.5 text-xs text-tinta-tenue">
+                {pagosVencidos.length === 0
+                  ? 'Sin pagos vencidos'
+                  : `${pagosVencidos.length} ${pagosVencidos.length === 1 ? 'pago vencido' : 'pagos vencidos'} · ${formatoDinero(totalVencido)}`}
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => onIr('pagos')}
+              className="flex items-center gap-1 rounded-full px-2 py-1 text-xs font-semibold text-blue-700 transition-colors hover:bg-blue-50"
+            >
+              Ver pagos <ArrowRight size={13} />
+            </button>
+          </div>
+          {pagosVencidos.length === 0 ? (
+            <Vacio icono={<Banknote size={22} />} titulo="Todo cobrado" texto="No hay pagos vencidos por ahora." />
+          ) : (
+            <ul className="divide-y divide-borde-suave">
+              {pagosVencidos.slice(0, 5).map((pago) => {
+                const dias = diasDeAtraso(pago.fecha)
+                return (
+                  <li key={pago.id} className="flex items-center gap-3 px-4 py-2.5 transition-colors hover:bg-superficie-2">
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate text-sm font-medium text-tinta">{pago.concepto}</p>
+                      <p className="truncate text-xs text-tinta-tenue">
+                        {pago.clientes?.nombre ?? 'Cliente'} · {formatoFecha(pago.fecha)} ·{' '}
+                        <span className="font-medium text-red-700">
+                          vencido hace {dias} día{dias === 1 ? '' : 's'}
+                        </span>
+                      </p>
+                    </div>
+                    <span className="shrink-0 text-sm font-semibold text-red-700 tabular-nums">{formatoDinero(pago.monto)}</span>
+                  </li>
+                )
+              })}
+            </ul>
+          )}
+        </Tarjeta>
       </div>
 
       <div className="mt-6 grid gap-4 lg:grid-cols-3">
