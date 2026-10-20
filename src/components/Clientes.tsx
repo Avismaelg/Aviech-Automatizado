@@ -1,7 +1,8 @@
-import { Pencil, Plus, Search, Trash2, UserRound } from 'lucide-react'
+import { Download, Pencil, Plus, Search, Trash2, UserRound } from 'lucide-react'
 import { useMemo, useState, type FormEvent } from 'react'
+import { construirCSV, descargarContenidoCSV } from '../lib/csv'
 import { ESTADOS_CLIENTE, colorEstadoCliente, etiquetaEstadoCliente } from '../lib/etiquetas'
-import { formatoFecha, iniciales } from '../lib/formato'
+import { formatoFecha, hoyISO, iniciales } from '../lib/formato'
 import { useTabla } from '../lib/useTabla'
 import type { Cliente } from '../types/cliente'
 import {
@@ -64,6 +65,21 @@ export function Clientes() {
     })
   }, [clientes, busqueda, filtroEstado])
 
+  function exportarCSV() {
+    const cabeceras = ['Nombre', 'Empresa', 'RNC', 'Teléfono', 'Correo', 'Estado', 'Notas', 'Fecha de alta']
+    const filas = filtrados.map((cliente) => [
+      cliente.nombre,
+      cliente.empresa,
+      cliente.rnc,
+      cliente.telefono,
+      cliente.email,
+      etiquetaEstadoCliente[cliente.estado] ?? cliente.estado,
+      cliente.notas,
+      formatoFecha(cliente.created_at),
+    ])
+    descargarContenidoCSV(`clientes-${hoyISO()}.csv`, construirCSV([cabeceras, ...filas], ';'))
+  }
+
   function abrirNuevo() {
     setEditandoId(null)
     setFormulario(FORMULARIO_VACIO)
@@ -110,9 +126,14 @@ export function Clientes() {
         titulo="Clientes"
         descripcion={`${clientes.length} registrado${clientes.length === 1 ? '' : 's'}`}
         acciones={
-          <Boton onClick={abrirNuevo}>
-            <Plus size={16} /> Nuevo cliente
-          </Boton>
+          <div className="flex flex-wrap items-center gap-2">
+            <Boton variante="secundario" onClick={exportarCSV} disabled={filtrados.length === 0}>
+              <Download size={16} /> Exportar CSV
+            </Boton>
+            <Boton onClick={abrirNuevo}>
+              <Plus size={16} /> Nuevo cliente
+            </Boton>
+          </div>
         }
       />
 
